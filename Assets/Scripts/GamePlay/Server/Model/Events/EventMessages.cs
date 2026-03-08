@@ -1,26 +1,15 @@
 using System;
 using System.Linq;
-using System.Reflection;
-using ExitGames.Client.Photon;
 using Mahjong.Model;
-using Photon.Realtime;
-using Utils;
 
 namespace GamePlay.Server.Model.Events
 {
+    /// <summary>
+    /// 网络消息数据结构定义。
+    /// Photon 已移除，所有网络通信通过 Mirror [ClientRpc]/[TargetRpc]/[Command] 实现。
+    /// </summary>
     public static class EventMessages
     {
-        public static readonly RaiseEventOptions ToMaster = new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient };
-        public static readonly RaiseEventOptions ToAll = new RaiseEventOptions { Receivers = ReceiverGroup.All };
-        public static readonly RaiseEventOptions ToOther = new RaiseEventOptions { Receivers = ReceiverGroup.Others };
-        public static readonly SendOptions SendReliable = SendOptions.SendReliable;
-        public static readonly SendOptions SendUnreliable = SendOptions.SendUnreliable;
-        public const byte LoadCompleteEvent = (byte)0;
-        public const byte ClientReadyEvent = (byte)1;
-        public const byte DiscardTileEvent = (byte)2;
-        public const byte InTurnOperationEvent = (byte)3;
-        public const byte OutTurnOperationEvent = (byte)4;
-        public const byte NextRoundEvent = (byte)5;
 
         [Serializable]
         public struct GamePrepareInfo

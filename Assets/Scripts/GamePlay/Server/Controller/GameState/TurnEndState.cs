@@ -61,8 +61,8 @@ namespace GamePlay.Server.Controller.GameState
                     Zhenting = CurrentRoundStatus.IsZhenting(i),
                     MahjongSetData = MahjongSet.Data
                 };
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcTurnEnd", player, info);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcTurnEnd(conn, info);
             }
             serverTurnEndTimeOut = operationChosen == OutTurnOperationType.Rong || operationChosen == OutTurnOperationType.RoundDraw ?
                 ServerConstants.ServerTurnEndTimeOutExtra : ServerConstants.ServerTurnEndTimeOut;

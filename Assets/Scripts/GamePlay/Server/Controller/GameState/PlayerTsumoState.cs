@@ -1,17 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class PlayerTsumoState : ServerState, IOnEventCallback
+    public class PlayerTsumoState : ServerState
     {
         public int TsumoPlayerIndex;
         public Tile WinningTile;
@@ -25,7 +23,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived += HandleClientReady;
             int multiplier = gameSettings.GetMultiplier(CurrentRoundStatus.IsDealer(TsumoPlayerIndex), players.Count);
             var netInfo = new NetworkPointInfo
             {
@@ -49,7 +47,7 @@ namespace GamePlay.Server.Controller.GameState
                 TotalPoints = TsumoPointInfo.BasePoint * multiplier
             };
             // send rpc calls
-            ClientBehaviour.Instance.photonView.RPC("RpcTsumo", RpcTarget.AllBufferedViaServer, info);
+            ClientBehaviour.Instance.RpcTsumo(info);
             // get point transfers
             // todo -- tsumo loss related, now there is tsumo loss by default
             transfers = new List<PointTransfer>();
@@ -81,7 +79,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived -= HandleClientReady;
         }
 
         public override void OnStateUpdate()
@@ -99,22 +97,10 @@ namespace GamePlay.Server.Controller.GameState
             ServerBehaviour.Instance.PointTransfer(transfers, next, !next, false);
         }
 
-        private void OnClientReadyEvent(int index)
+        private void HandleClientReady(int index)
         {
+            Debug.Log($"{GetType().Name} receives ClientReadyEvent with content {index}");
             responds[index] = true;
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.ClientReadyEvent:
-                    OnClientReadyEvent((int)photonEvent.CustomData);
-                    break;
-            }
         }
     }
 }

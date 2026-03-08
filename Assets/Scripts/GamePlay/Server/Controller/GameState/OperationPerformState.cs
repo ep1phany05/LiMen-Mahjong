@@ -1,15 +1,14 @@
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
+using GamePlay.Server.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class OperationPerformState : ServerState, IOnEventCallback
+    public class OperationPerformState : ServerState
     {
         public int CurrentPlayerIndex;
         public int DiscardPlayerIndex;
@@ -21,15 +20,15 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnDiscardTileReceived += HandleDiscardTile;
             // update hand data
             UpdateRoundStatus();
             // send messages
             for (int i = 0; i < players.Count; i++)
             {
                 var info = GetInfo(i);
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcOperationPerform", player, info);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcOperationPerform(conn, info);
             }
             KongOperation();
             firstSendTime = Time.time;
@@ -85,7 +84,7 @@ namespace GamePlay.Server.Controller.GameState
             ServerBehaviour.Instance.DrawTile(CurrentPlayerIndex, true, turnDoraAfterDiscard);
         }
 
-        private void OnDiscardTileEvent(EventMessages.DiscardTileInfo info)
+        private void HandleDiscardTile(EventMessages.DiscardTileInfo info)
         {
             if (info.PlayerIndex != CurrentRoundStatus.CurrentPlayerIndex)
             {
@@ -100,7 +99,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnDiscardTileReceived -= HandleDiscardTile;
         }
 
         public override void OnStateUpdate()
@@ -111,19 +110,6 @@ namespace GamePlay.Server.Controller.GameState
                 // force auto discard
                 var tiles = CurrentRoundStatus.HandTiles(CurrentPlayerIndex);
                 ServerBehaviour.Instance.DiscardTile(CurrentPlayerIndex, tiles[tiles.Length - 1], false, false, 0, turnDoraAfterDiscard);
-            }
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.DiscardTileEvent:
-                    OnDiscardTileEvent((EventMessages.DiscardTileInfo)info);
-                    break;
             }
         }
     }

@@ -1,18 +1,17 @@
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
+using GamePlay.Server.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class PlayerDrawTileState : ServerState, IOnEventCallback
+    public class PlayerDrawTileState : ServerState
     {
         public int CurrentPlayerIndex;
         public MahjongSet MahjongSet;
@@ -25,7 +24,8 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnDiscardTileReceived += HandleDiscardTile;
+            ServerBehaviour.Instance.OnInTurnOperationReceived += HandleInTurnOperation;
             if (IsLingShang)
                 justDraw = MahjongSet.DrawLingShang();
             else
@@ -36,7 +36,6 @@ namespace GamePlay.Server.Controller.GameState
             CurrentRoundStatus.BreakTempZhenting(CurrentPlayerIndex);
             Debug.Log($"[Server] Distribute a tile {justDraw} to current turn player {CurrentPlayerIndex}, "
                 + $"first turn: {CurrentRoundStatus.FirstTurn}.");
-            var room = PhotonNetwork.CurrentRoom;
             for (int i = 0; i < players.Count; i++)
             {
                 if (i == CurrentPlayerIndex) continue;
@@ -46,11 +45,11 @@ namespace GamePlay.Server.Controller.GameState
                     DrawPlayerIndex = CurrentPlayerIndex,
                     MahjongSetData = MahjongSet.Data
                 };
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcDrawTile", player, info);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcDrawTile(conn, info);
             }
-            var currentPlayer = CurrentRoundStatus.GetPlayer(CurrentPlayerIndex);
-            ClientBehaviour.Instance.photonView.RPC("RpcDrawTile", currentPlayer, new EventMessages.DrawTileInfo
+            var currentConn = CurrentRoundStatus.GetConnection(CurrentPlayerIndex);
+            ClientBehaviour.Instance.TargetRpcDrawTile(currentConn, new EventMessages.DrawTileInfo
             {
                 PlayerIndex = CurrentPlayerIndex,
                 DrawPlayerIndex = CurrentPlayerIndex,
@@ -215,7 +214,7 @@ namespace GamePlay.Server.Controller.GameState
             }
         }
 
-        private void OnDiscardTileEvent(EventMessages.DiscardTileInfo info)
+        private void HandleDiscardTile(EventMessages.DiscardTileInfo info)
         {
             if (info.PlayerIndex != CurrentRoundStatus.CurrentPlayerIndex)
             {
@@ -228,7 +227,7 @@ namespace GamePlay.Server.Controller.GameState
                 info.DiscardingLastDraw, info.BonusTurnTime, TurnDoraAfterDiscard);
         }
 
-        private void OnInTurnOperationEvent(EventMessages.InTurnOperationInfo info)
+        private void HandleInTurnOperation(EventMessages.InTurnOperationInfo info)
         {
             if (info.PlayerIndex != CurrentRoundStatus.CurrentPlayerIndex)
             {
@@ -297,24 +296,9 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnDiscardTileReceived -= HandleDiscardTile;
+            ServerBehaviour.Instance.OnInTurnOperationReceived -= HandleInTurnOperation;
             CurrentRoundStatus.CheckOneShot(CurrentPlayerIndex);
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.DiscardTileEvent:
-                    OnDiscardTileEvent((EventMessages.DiscardTileInfo)info);
-                    break;
-                case EventMessages.InTurnOperationEvent:
-                    OnInTurnOperationEvent((EventMessages.InTurnOperationInfo)info);
-                    break;
-            }
         }
     }
 }

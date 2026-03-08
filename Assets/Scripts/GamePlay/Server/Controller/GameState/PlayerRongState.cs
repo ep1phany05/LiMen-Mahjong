@@ -1,17 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class PlayerRongState : ServerState, IOnEventCallback
+    public class PlayerRongState : ServerState
     {
         public int CurrentPlayerIndex;
         public int[] RongPlayerIndices;
@@ -27,7 +25,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived += HandleClientReady;
             responds = new bool[players.Count];
             var playerNames = RongPlayerIndices.Select(
                 playerIndex => CurrentRoundStatus.GetPlayerName(playerIndex)
@@ -67,7 +65,7 @@ namespace GamePlay.Server.Controller.GameState
                 TotalPoints = totalPoints
             };
             // send rpc calls
-            ClientBehaviour.Instance.photonView.RPC("RpcRong", RpcTarget.AllBufferedViaServer, rongInfo);
+            ClientBehaviour.Instance.RpcRong(rongInfo);
             // get point transfers
             transfers = new List<PointTransfer>();
             for (int i = 0; i < RongPlayerIndices.Length; i++)
@@ -99,7 +97,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived -= HandleClientReady;
         }
 
         public override void OnStateUpdate()
@@ -116,22 +114,10 @@ namespace GamePlay.Server.Controller.GameState
             ServerBehaviour.Instance.PointTransfer(transfers, next, !next, false);
         }
 
-        private void OnClientReadyEvent(int index)
+        private void HandleClientReady(int index)
         {
+            Debug.Log($"{GetType().Name} receives ClientReadyEvent with content {index}");
             responds[index] = true;
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.ClientReadyEvent:
-                    OnClientReadyEvent((int)photonEvent.CustomData);
-                    break;
-            }
         }
     }
 }

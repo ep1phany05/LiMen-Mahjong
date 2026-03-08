@@ -1,27 +1,32 @@
-﻿using System.Linq;
+using System.Linq;
 using Common.StateMachine;
 using Common.StateMachine.Interfaces;
 using GamePlay.Client.Controller.GameState;
 using GamePlay.Client.Model;
+using GamePlay.Server.Controller;
 using GamePlay.Server.Model;
-using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
 using GamePlay.Server.Model.Events;
+using Mahjong.Model;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Client.Controller
 {
-    public class ClientBehaviour : MonoBehaviourPunCallbacks
+    /// <summary>
+    /// Mirror 版本的客户端行为。
+    /// [TargetRpc] = 服务器→特定客户端
+    /// [ClientRpc] = 服务器→所有客户端
+    /// [Command]   = 客户端→服务器
+    /// </summary>
+    public class ClientBehaviour : NetworkBehaviour
     {
         public static ClientBehaviour Instance { get; private set; }
         private ClientRoundStatus CurrentRoundStatus;
         private ViewController controller;
         public IStateMachine StateMachine { get; private set; }
 
-        public override void OnEnable()
+        private void OnEnable()
         {
-            base.OnEnable();
             Debug.Log("ClientBehaviour.OnEnable() is called");
             Instance = this;
             StateMachine = new StateMachine();
@@ -29,18 +34,31 @@ namespace GamePlay.Client.Controller
 
         private void Start()
         {
-            if (!PhotonNetwork.IsMasterClient)
+            if (isClient)
             {
-                var player = PhotonNetwork.LocalPlayer;
-                PhotonNetwork.RaiseEvent(
-                    EventMessages.LoadCompleteEvent, player.ActorNumber,
-                    EventMessages.ToMaster, EventMessages.SendReliable);
+                var playerName = PlayerPrefs.GetString("PlayerName", "玩家");
+                CmdRegisterPlayerName(playerName);
+            }
+
+            if (!isServer)
+            {
+                // 客户端发送加载完成通知（由服务器按连接ID统计）
+                CmdLoadComplete();
             }
             controller = ViewController.Instance;
         }
 
-        [PunRPC]
-        public void RpcGamePrepare(EventMessages.GamePrepareInfo info)
+        private void Update()
+        {
+            StateMachine?.UpdateState();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 服务器→特定客户端 的 RPC（替换 [PunRPC] + photonView.RPC(player)）
+        // ═══════════════════════════════════════════════════════════════
+
+        [TargetRpc]
+        public void TargetRpcGamePrepare(NetworkConnectionToClient target, EventMessages.GamePrepareInfo info)
         {
             CurrentRoundStatus = new ClientRoundStatus(info.PlayerIndex, info.GameSetting);
             var prepareState = new GamePrepareState
@@ -52,8 +70,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(prepareState);
         }
 
-        [PunRPC]
-        public void RpcRoundStart(EventMessages.RoundStartInfo info)
+        [TargetRpc]
+        public void TargetRpcRoundStart(NetworkConnectionToClient target, EventMessages.RoundStartInfo info)
         {
             var startState = new RoundStartState
             {
@@ -70,8 +88,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(startState);
         }
 
-        [PunRPC]
-        public void RpcDrawTile(EventMessages.DrawTileInfo info)
+        [TargetRpc]
+        public void TargetRpcDrawTile(NetworkConnectionToClient target, EventMessages.DrawTileInfo info)
         {
             var drawState = new PlayerDrawState
             {
@@ -86,8 +104,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(drawState);
         }
 
-        [PunRPC]
-        public void RpcKong(EventMessages.KongInfo message)
+        [TargetRpc]
+        public void TargetRpcKong(NetworkConnectionToClient target, EventMessages.KongInfo message)
         {
             var kongState = new PlayerKongState
             {
@@ -101,8 +119,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(kongState);
         }
 
-        [PunRPC]
-        public void RpcBeiDora(EventMessages.BeiDoraInfo message)
+        [TargetRpc]
+        public void TargetRpcBeiDora(NetworkConnectionToClient target, EventMessages.BeiDoraInfo message)
         {
             var beiDoraState = new PlayerBeiDoraState
             {
@@ -117,8 +135,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(beiDoraState);
         }
 
-        [PunRPC]
-        public void RpcDiscardOperation(EventMessages.DiscardOperationInfo info)
+        [TargetRpc]
+        public void TargetRpcDiscardOperation(NetworkConnectionToClient target, EventMessages.DiscardOperationInfo info)
         {
             var discardOperationState = new PlayerDiscardOperationState
             {
@@ -136,8 +154,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(discardOperationState);
         }
 
-        [PunRPC]
-        public void RpcTurnEnd(EventMessages.TurnEndInfo info)
+        [TargetRpc]
+        public void TargetRpcTurnEnd(NetworkConnectionToClient target, EventMessages.TurnEndInfo info)
         {
             var turnEndState = new PlayerTurnEndState
             {
@@ -154,8 +172,8 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(turnEndState);
         }
 
-        [PunRPC]
-        public void RpcOperationPerform(EventMessages.OperationPerformInfo info)
+        [TargetRpc]
+        public void TargetRpcOperationPerform(NetworkConnectionToClient target, EventMessages.OperationPerformInfo info)
         {
             var operationState = new PlayerOperationPerformState
             {
@@ -171,7 +189,23 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(operationState);
         }
 
-        [PunRPC]
+        [TargetRpc]
+        public void TargetRpcRoundDraw(NetworkConnectionToClient target, EventMessages.RoundDrawInfo info)
+        {
+            var roundDrawState = new RoundDrawState
+            {
+                CurrentRoundStatus = CurrentRoundStatus,
+                RoundDrawType = info.RoundDrawType,
+                WaitingData = info.WaitingData
+            };
+            StateMachine.ChangeState(roundDrawState);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 服务器→所有客户端 的 RPC（替换 RpcTarget.AllBufferedViaServer）
+        // ═══════════════════════════════════════════════════════════════
+
+        [ClientRpc]
         public void RpcTsumo(EventMessages.TsumoInfo info)
         {
             var tsumoState = new PlayerTsumoState
@@ -190,7 +224,7 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(tsumoState);
         }
 
-        [PunRPC]
+        [ClientRpc]
         public void RpcRong(EventMessages.RongInfo message)
         {
             var rongState = new PlayerRongState
@@ -209,19 +243,7 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(rongState);
         }
 
-        [PunRPC]
-        public void RpcRoundDraw(EventMessages.RoundDrawInfo info)
-        {
-            var roundDrawState = new RoundDrawState
-            {
-                CurrentRoundStatus = CurrentRoundStatus,
-                RoundDrawType = info.RoundDrawType,
-                WaitingData = info.WaitingData
-            };
-            StateMachine.ChangeState(roundDrawState);
-        }
-
-        [PunRPC]
+        [ClientRpc]
         public void RpcPointTransfer(EventMessages.PointTransferInfo message)
         {
             var transferState = new PointTransferState
@@ -234,8 +256,9 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(transferState);
         }
 
-        [PunRPC]
-        public void RpcGameEnd(EventMessages.GameEndInfo message) {
+        [ClientRpc]
+        public void RpcGameEnd(EventMessages.GameEndInfo message)
+        {
             var endState = new GameEndState
             {
                 CurrentRoundStatus = CurrentRoundStatus,
@@ -246,18 +269,68 @@ namespace GamePlay.Client.Controller
             StateMachine.ChangeState(endState);
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // 客户端→服务器 的 Command（替换 PhotonNetwork.RaiseEvent）
+        // ═══════════════════════════════════════════════════════════════
+
+        [Command(requiresAuthority = false)]
+        public void CmdLoadComplete(NetworkConnectionToClient sender = null)
+        {
+            if (sender == null) return;
+            ServerBehaviour.Instance?.HandleLoadComplete(sender.connectionId);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdRegisterPlayerName(string playerName, NetworkConnectionToClient sender = null)
+        {
+            if (sender == null) return;
+            var manager = LiMen.Network.LiMenNetworkManager.singleton;
+            if (manager == null) return;
+            manager.RegisterPlayer(sender, playerName);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdClientReady(int playerIndex)
+        {
+            ServerBehaviour.Instance?.HandleClientReady(playerIndex);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdDiscardTile(EventMessages.DiscardTileInfo info)
+        {
+            ServerBehaviour.Instance?.HandleDiscardTile(info);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdInTurnOperation(EventMessages.InTurnOperationInfo info)
+        {
+            ServerBehaviour.Instance?.HandleInTurnOperation(info);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdOutTurnOperation(EventMessages.OutTurnOperationInfo info)
+        {
+            ServerBehaviour.Instance?.HandleOutTurnOperation(info);
+        }
+
+        [Command(requiresAuthority = false)]
+        public void CmdNextRound(int playerIndex)
+        {
+            ServerBehaviour.Instance?.HandleNextRound(playerIndex);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 客户端方法（替换 PhotonNetwork.RaiseEvent 调用）
+        // ═══════════════════════════════════════════════════════════════
+
         public void ClientReady()
         {
-            PhotonNetwork.RaiseEvent(
-                EventMessages.ClientReadyEvent, CurrentRoundStatus.LocalPlayerIndex,
-                EventMessages.ToMaster, EventMessages.SendReliable);
+            CmdClientReady(CurrentRoundStatus.LocalPlayerIndex);
         }
 
         public void NextRound()
         {
-            PhotonNetwork.RaiseEvent(
-                EventMessages.NextRoundEvent, CurrentRoundStatus.LocalPlayerIndex,
-                EventMessages.ToMaster, EventMessages.SendReliable);
+            CmdNextRound(CurrentRoundStatus.LocalPlayerIndex);
         }
 
         public void OnDiscardTile(Tile tile, bool isLastDraw)
@@ -277,10 +350,9 @@ namespace GamePlay.Client.Controller
                 Tile = tile,
                 BonusTurnTime = bonusTimeLeft
             };
-            PhotonNetwork.RaiseEvent(
-                EventMessages.DiscardTileEvent, info,
-                EventMessages.ToMaster, EventMessages.SendReliable);
-            var localDiscardState = new LocalDiscardState {
+            CmdDiscardTile(info);
+            var localDiscardState = new LocalDiscardState
+            {
                 CurrentRoundStatus = CurrentRoundStatus,
                 CurrentPlayerIndex = CurrentRoundStatus.LocalPlayerIndex,
                 IsRichiing = CurrentRoundStatus.IsRichiing,
@@ -298,9 +370,7 @@ namespace GamePlay.Client.Controller
                 Operation = operation,
                 BonusTurnTime = bonusTurnTime
             };
-            PhotonNetwork.RaiseEvent(
-                EventMessages.InTurnOperationEvent, info,
-                EventMessages.ToMaster, EventMessages.SendReliable);
+            CmdInTurnOperation(info);
         }
 
         public void OnSkipOutTurnOperation(int bonusTurnTime)
@@ -316,9 +386,7 @@ namespace GamePlay.Client.Controller
                 Operation = operation,
                 BonusTurnTime = bonusTurnTime
             };
-            PhotonNetwork.RaiseEvent(
-                EventMessages.OutTurnOperationEvent, info,
-                EventMessages.ToMaster, EventMessages.SendReliable);
+            CmdOutTurnOperation(info);
         }
 
         public void OnInTurnSkipButtonClicked()
@@ -347,7 +415,6 @@ namespace GamePlay.Client.Controller
                 Debug.LogError($"Cannot send a operation with type {operation.Type} within OnRichiButtonClicked method");
                 return;
             }
-            // show richi selection panel
             Debug.Log($"Showing richi selection panel, candidates: {string.Join(",", operation.RichiAvailableTiles)}");
             CurrentRoundStatus.SetRichiing(true);
             controller.HandPanelManager.SetCandidates(operation.RichiAvailableTiles);
@@ -373,7 +440,6 @@ namespace GamePlay.Client.Controller
                 controller.InTurnPanelManager.Close();
                 return;
             }
-            // show kong selection panel here
             controller.InTurnPanelManager.ShowBackButton();
             var meldOptions = operationOptions.Select(op => op.Meld);
             controller.MeldSelectionManager.SetMeldOptions(meldOptions.ToArray(), meld =>
@@ -440,19 +506,18 @@ namespace GamePlay.Client.Controller
                 controller.OutTurnPanelManager.Close();
                 return;
             }
-            // chow selection logic here
             controller.OutTurnPanelManager.ShowBackButton();
             var meldOptions = operationOptions.Select(op => op.Meld);
             controller.MeldSelectionManager.SetMeldOptions(meldOptions.ToArray(), meld =>
             {
                 int bonusTimeLeft = controller.TurnTimeController.StopCountDown();
-                Debug.Log($"Sending request of in turn kong operation with bonus turn time {bonusTimeLeft}");
+                Debug.Log($"Sending request of chow operation with bonus turn time {bonusTimeLeft}");
                 OnOutTurnOperationTaken(new OutTurnOperation
                 {
                     Type = OutTurnOperationType.Chow,
                     Meld = meld
                 }, bonusTimeLeft);
-                controller.InTurnPanelManager.Close();
+                controller.OutTurnPanelManager.Close();
                 controller.MeldSelectionManager.Close();
             });
         }
@@ -472,46 +537,25 @@ namespace GamePlay.Client.Controller
             if (operationOptions.Length == 1)
             {
                 int bonusTimeLeft = controller.TurnTimeController.StopCountDown();
-                Debug.Log($"Sending request of kong operation with bonus turn time {bonusTimeLeft}");
+                Debug.Log($"Sending request of pong operation with bonus turn time {bonusTimeLeft}");
                 OnOutTurnOperationTaken(operationOptions[0], bonusTimeLeft);
                 controller.OutTurnPanelManager.Close();
                 return;
             }
-            // pong selection logic here
             controller.OutTurnPanelManager.ShowBackButton();
             var meldOptions = operationOptions.Select(op => op.Meld);
             controller.MeldSelectionManager.SetMeldOptions(meldOptions.ToArray(), meld =>
             {
                 int bonusTimeLeft = controller.TurnTimeController.StopCountDown();
-                Debug.Log($"Sending request of in turn kong operation with bonus turn time {bonusTimeLeft}");
+                Debug.Log($"Sending request of pong operation with bonus turn time {bonusTimeLeft}");
                 OnOutTurnOperationTaken(new OutTurnOperation
                 {
                     Type = OutTurnOperationType.Pong,
                     Meld = meld
                 }, bonusTimeLeft);
-                controller.InTurnPanelManager.Close();
+                controller.OutTurnPanelManager.Close();
                 controller.MeldSelectionManager.Close();
             });
-        }
-
-        public override void OnLeftRoom()
-        {
-            // todo
-        }
-
-        public override void OnLeftLobby()
-        {
-            // todo
-        }
-
-        public override void OnPlayerLeftRoom(Player otherPlayer)
-        {
-            // todo
-        }
-
-        public override void OnPlayerEnteredRoom(Player newPlayer)
-        {
-            // todo
         }
     }
 }

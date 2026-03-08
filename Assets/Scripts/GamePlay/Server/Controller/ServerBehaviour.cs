@@ -1,38 +1,51 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
+using System.Linq;
 using Common.StateMachine;
 using Common.StateMachine.Interfaces;
 using GamePlay.Server.Controller.GameState;
 using GamePlay.Server.Model;
+using GamePlay.Server.Model.Events;
+using LiMen.Network;
+using Managers;
+using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
-using PUNLobby;
+using Mirror;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using Utils;
 
 namespace GamePlay.Server.Controller
 {
     /// <summary>
-    /// This class only takes effect on server
+    /// This class only takes effect on server (Host).
+    /// Mirror 版本：替换了 Photon PUN2 的所有网络调用。
     /// </summary>
-    public class ServerBehaviour : MonoBehaviourPun
+    public class ServerBehaviour : NetworkBehaviour
     {
-        public SceneField lobbyScene;
+        public string lobbySceneName = "PUN_Lobby";
         [HideInInspector] public GameSetting GameSettings;
         public IStateMachine StateMachine { get; private set; }
         private MahjongSet mahjongSet;
+        private bool useSichuanMode;
         public ServerRoundStatus CurrentRoundStatus = null;
         public static ServerBehaviour Instance { get; private set; }
+
+        // ─── 服务器端事件（GameState 订阅这些事件来接收客户端消息） ───
+        public event System.Action<int> OnLoadCompleteReceived;
+        public event System.Action<int> OnClientReadyReceived;
+        public event System.Action<EventMessages.DiscardTileInfo> OnDiscardTileReceived;
+        public event System.Action<EventMessages.InTurnOperationInfo> OnInTurnOperationReceived;
+        public event System.Action<EventMessages.OutTurnOperationInfo> OnOutTurnOperationReceived;
+        public event System.Action<int> OnNextRoundReceived;
 
         private void OnEnable()
         {
             Debug.Log("[Server] ServerBehaviour.OnEnable() is called");
-            if (!PhotonNetwork.IsConnected)
+            if (!NetworkServer.active)
             {
-                SceneManager.LoadScene(lobbyScene);
+                SceneManager.LoadScene(lobbySceneName);
                 return;
             }
-            if (!PhotonNetwork.IsMasterClient) return;
+            if (!isServer) return;
             Instance = this;
             StateMachine = new StateMachine();
             ReadSetting();
@@ -41,36 +54,85 @@ namespace GamePlay.Server.Controller
 
         private void Start()
         {
-            if (!PhotonNetwork.IsMasterClient)
-                Destroy(gameObject);
+            if (!isServer)
+                enabled = false;
         }
 
         private void Update()
         {
-            StateMachine.UpdateState();
+            if (!isServer) return;
+            StateMachine?.UpdateState();
         }
 
         private void ReadSetting()
         {
-            var room = PhotonNetwork.CurrentRoom;
-            // var setting = (string)room.CustomProperties[SettingKeys.SETTING];
-            // GameSettings = JsonUtility.FromJson<GameSetting>(setting);
-            GameSettings = (GameSetting)room.CustomProperties[SettingKeys.SETTING];
+            if (GameSettings == null)
+            {
+                if (ResourceManager.Instance != null)
+                    ResourceManager.Instance.LoadSettings(out GameSettings);
+                else
+                    GameSettings = new GameSetting();
+            }
+
+            var manager = LiMenNetworkManager.singleton;
+            int connectedPlayers = manager != null ? manager.ConnectedPlayers.Count : 0;
+            if (connectedPlayers >= 2)
+            {
+                GameSettings.GamePlayers = connectedPlayers switch
+                {
+                    2 => GamePlayers.Two,
+                    3 => GamePlayers.Three,
+                    _ => GamePlayers.Four
+                };
+            }
+
+            var mode = PlayerPrefs.GetString("GameMode", "Riichi");
+            if (mode == "Sichuan")
+            {
+                InitializeSichuanGame();
+            }
+            else
+            {
+                InitializeRiichiGame();
+            }
+        }
+
+        private void InitializeRiichiGame()
+        {
+            useSichuanMode = false;
+            Debug.Log("[Server] Game mode: Riichi");
+        }
+
+        private void InitializeSichuanGame()
+        {
+            useSichuanMode = true;
+            Debug.Log("[Server] Game mode: Sichuan");
         }
 
         private void WaitForOthersLoading()
         {
+            var manager = LiMenNetworkManager.singleton;
+            int connectedPlayers = manager != null ? manager.ConnectedPlayers.Count : GameSettings.MaxPlayer;
+            connectedPlayers = Mathf.Max(connectedPlayers, 1);
+
             var waitingState = new WaitForLoadingState
             {
-                TotalPlayers = GameSettings.MaxPlayer
+                TotalPlayers = connectedPlayers,
+                ExpectedResponses = Mathf.Max(connectedPlayers - 1, 0)
             };
             StateMachine.ChangeState(waitingState);
         }
 
         public void GamePrepare()
         {
-            CurrentRoundStatus = new ServerRoundStatus(GameSettings, PhotonNetwork.PlayerList);
-            mahjongSet = new MahjongSet(GameSettings, GameSettings.GetAllTiles());
+            var manager = LiMenNetworkManager.singleton;
+            var connections = manager.GetPlayerConnections();
+            var names = manager.GetPlayerNames();
+            CurrentRoundStatus = new ServerRoundStatus(GameSettings, connections, names);
+            var tiles = useSichuanMode
+                ? SichuanLogic.CreateSichuanTileSet()
+                : new List<Tile>(GameSettings.GetAllTiles());
+            mahjongSet = new MahjongSet(GameSettings, tiles);
             var prepareState = new GamePrepareState
             {
                 CurrentRoundStatus = CurrentRoundStatus,
@@ -80,7 +142,6 @@ namespace GamePlay.Server.Controller
 
         public void GameAbort()
         {
-            // todo -- implement abort logic here: at least one of the players cannot load into game, back to lobby scene
             Debug.LogError("The game aborted, this part is still under construction");
         }
 
@@ -236,6 +297,38 @@ namespace GamePlay.Server.Controller
                 CurrentRoundStatus = CurrentRoundStatus
             };
             StateMachine.ChangeState(gameEndState);
+        }
+
+        // ─── 接收客户端消息的处理方法（由 ClientBehaviour 的 [Command] 转发） ───
+
+        public void HandleLoadComplete(int connectionId)
+        {
+            OnLoadCompleteReceived?.Invoke(connectionId);
+        }
+
+        public void HandleClientReady(int playerIndex)
+        {
+            OnClientReadyReceived?.Invoke(playerIndex);
+        }
+
+        public void HandleDiscardTile(EventMessages.DiscardTileInfo info)
+        {
+            OnDiscardTileReceived?.Invoke(info);
+        }
+
+        public void HandleInTurnOperation(EventMessages.InTurnOperationInfo info)
+        {
+            OnInTurnOperationReceived?.Invoke(info);
+        }
+
+        public void HandleOutTurnOperation(EventMessages.OutTurnOperationInfo info)
+        {
+            OnOutTurnOperationReceived?.Invoke(info);
+        }
+
+        public void HandleNextRound(int playerIndex)
+        {
+            OnNextRoundReceived?.Invoke(playerIndex);
         }
     }
 }

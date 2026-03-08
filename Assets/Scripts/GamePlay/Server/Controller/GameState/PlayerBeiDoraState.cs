@@ -1,18 +1,17 @@
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
+using GamePlay.Server.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class PlayerBeiDoraState : ServerState, IOnEventCallback
+    public class PlayerBeiDoraState : ServerState
     {
         public int CurrentPlayerIndex;
         public MahjongSet MahjongSet;
@@ -22,15 +21,15 @@ namespace GamePlay.Server.Controller.GameState
         private float serverTimeOut;
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnOutTurnOperationReceived += HandleOutTurnOperation;
             // update hand tiles and bei doras
             UpdateRoundStatus();
             // send messages
             for (int i = 0; i < players.Count; i++)
             {
                 var info = GetInfo(i);
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcBeiDora", player, info);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcBeiDora(conn, info);
             }
             responds = new bool[players.Count];
             outTurnOperations = new OutTurnOperation[players.Count];
@@ -125,7 +124,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnOutTurnOperationReceived -= HandleOutTurnOperation;
         }
 
         public override void OnStateUpdate()
@@ -172,26 +171,13 @@ namespace GamePlay.Server.Controller.GameState
             Debug.LogError($"[Server] Logically cannot reach here, operations are {string.Join("|", outTurnOperations)}");
         }
 
-        private void OnOutTurnOperationEvent(EventMessages.OutTurnOperationInfo info)
+        private void HandleOutTurnOperation(EventMessages.OutTurnOperationInfo info)
         {
             var index = info.PlayerIndex;
             if (responds[index]) return;
             responds[index] = true;
             outTurnOperations[index] = info.Operation;
             CurrentRoundStatus.SetBonusTurnTime(index, info.BonusTurnTime);
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.OutTurnOperationEvent:
-                    OnOutTurnOperationEvent((EventMessages.OutTurnOperationInfo)info);
-                    break;
-            }
         }
     }
 }

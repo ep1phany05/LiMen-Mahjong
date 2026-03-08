@@ -1,9 +1,7 @@
 using System.Collections.Generic;
-using ExitGames.Client.Photon;
 using GamePlay.Server.Model;
-using Photon.Pun;
-using Photon.Realtime;
 using GamePlay.Server.Model.Events;
+using Mirror;
 using UnityEngine;
 
 
@@ -15,16 +13,17 @@ namespace GamePlay.Server.Controller.GameState
     /// Otherwise the server will resend the messages to not-responding clients until get enough responds or time out.
     /// When time out, the server transfers to GameAbortState.
     /// </summary>
-    public class WaitForLoadingState : ServerState, IOnEventCallback
+    public class WaitForLoadingState : ServerState
     {
         public int TotalPlayers;
+        public int ExpectedResponses;
         private ISet<int> responds;
         private float firstTime;
         public float serverTimeOut;
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnLoadCompleteReceived += HandleLoadComplete;
             responds = new HashSet<int>();
             firstTime = Time.time;
             serverTimeOut = ServerConstants.ServerWaitForLoadingTimeOut;
@@ -32,12 +31,13 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnLoadCompleteReceived -= HandleLoadComplete;
         }
 
         public override void OnStateUpdate()
         {
-            if (responds.Count == TotalPlayers - 1)
+            int targetResponses = Mathf.Max(ExpectedResponses, 0);
+            if (responds.Count >= targetResponses)
             {
                 Debug.Log("All set, game start");
                 ServerBehaviour.Instance.GamePrepare();
@@ -51,13 +51,10 @@ namespace GamePlay.Server.Controller.GameState
             }
         }
 
-        public void OnEvent(EventData photonEvent)
+        private void HandleLoadComplete(int connectionId)
         {
-            if (photonEvent.Code == EventMessages.LoadCompleteEvent)
-            {
-                Debug.Log($"Received event code: {photonEvent.Code} with content {photonEvent.CustomData}");
-                responds.Add((int)photonEvent.CustomData);
-            }
+            Debug.Log($"Received LoadComplete event from connection {connectionId}");
+            responds.Add(connectionId);
         }
     }
 }

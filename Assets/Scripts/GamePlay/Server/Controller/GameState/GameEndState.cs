@@ -2,7 +2,6 @@ using System.Linq;
 using GamePlay.Client.Controller;
 using GamePlay.Server.Model.Events;
 using Mahjong.Logic;
-using Photon.Pun;
 
 namespace GamePlay.Server.Controller.GameState
 {
@@ -20,7 +19,7 @@ namespace GamePlay.Server.Controller.GameState
                 Points = points,
                 Places = places
             };
-            ClientBehaviour.Instance.photonView.RPC("RpcGameEnd", RpcTarget.AllBufferedViaServer, info);
+            ClientBehaviour.Instance.RpcGameEnd(info);
         }
 
         public override void OnServerStateExit()

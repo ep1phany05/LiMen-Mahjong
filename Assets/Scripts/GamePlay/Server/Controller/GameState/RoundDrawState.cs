@@ -42,8 +42,8 @@ namespace GamePlay.Server.Controller.GameState
             // Send messages
             for (int i = 0; i < players.Count; i++)
             {
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcRoundDraw", player, infos[i]);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcRoundDraw(conn, infos[i]);
             }
             firstTime = Time.time;
         }

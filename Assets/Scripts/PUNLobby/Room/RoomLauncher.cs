@@ -1,80 +1,54 @@
-﻿using System.Collections;
-using Managers;
-using Photon.Pun;
-using Photon.Realtime;
+using LiMen.Network;
+using Mirror;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Utils;
 
 namespace PUNLobby.Room
 {
-    public class RoomLauncher : MonoBehaviourPunCallbacks
+    public class RoomLauncher : MonoBehaviour
     {
         public static RoomLauncher Instance { get; private set; }
+
         public SceneField lobbyScene;
         public SceneField mahjongScene;
         public RoomPanelManager roomPanelManager;
 
-        public override void OnEnable()
+        public string LobbySceneName => string.IsNullOrEmpty(lobbyScene?.SceneName) ? "PUN_Lobby" : lobbyScene.SceneName;
+        public string MahjongSceneName => string.IsNullOrEmpty(mahjongScene?.SceneName) ? "PUN_Mahjong" : mahjongScene.SceneName;
+
+        private void OnEnable()
         {
-            base.OnEnable();
             Instance = this;
+        }
+
+        private void OnDisable()
+        {
+            if (Instance == this) Instance = null;
         }
 
         private void Start()
         {
-            //In case we started this demo with the wrong scene being active, simply load the menu scene
-            if (PhotonNetwork.CurrentRoom == null)
+            var manager = LiMenNetworkManager.singleton;
+            if (manager == null || (!NetworkClient.active && !NetworkServer.active))
             {
-                Debug.Log("Is not in the room, returning back to Lobby");
-                UnityEngine.SceneManagement.SceneManager.LoadScene(lobbyScene);
+                Debug.Log("Not in network session, returning back to Lobby.");
+                SceneManager.LoadScene(LobbySceneName);
                 return;
             }
 
-            // We're in a room, set its title
-            roomPanelManager.SetTitle(PhotonNetwork.CurrentRoom.Name);
-            roomPanelManager.SetPlayers(PhotonNetwork.PlayerList);
-        }
-
-        public override void OnLeftRoom()
-        {
-            //We have left the Room, return back to the GameLobby
-            UnityEngine.SceneManagement.SceneManager.LoadScene(lobbyScene);
-        }
-
-        public override void OnMasterClientSwitched(Player newMasterClient)
-        {
-            roomPanelManager.SetPlayers(PhotonNetwork.PlayerList);
-            roomPanelManager.CheckButtonForMaster();
-        }
-
-        public override void OnPlayerEnteredRoom(Player newPlayer)
-        {
-            roomPanelManager.SetPlayers(PhotonNetwork.PlayerList);
-        }
-
-        public override void OnPlayerLeftRoom(Player otherPlayer)
-        {
-            roomPanelManager.SetPlayers(PhotonNetwork.PlayerList);
+            if (roomPanelManager != null)
+            {
+                roomPanelManager.SetTitle("Room");
+                roomPanelManager.RefreshRoomState();
+            }
         }
 
         public void GameStart()
         {
-            StartCoroutine(GameStartCoroutine());
-        }
-
-        private IEnumerator GameStartCoroutine()
-        {
-            photonView.RPC("RpcGameStart", RpcTarget.All, new object[0]);
-            yield return new WaitForSeconds(1.25f);
-            PhotonNetwork.LoadLevel(mahjongScene);
-        }
-
-        [PunRPC]
-        public void RpcGameStart()
-        {
-            var transition = GameObject.FindObjectOfType<SceneTransitionManager>();
-            transition.FadeOut();
+            var manager = LiMenNetworkManager.singleton;
+            if (manager == null || !NetworkServer.active) return;
+            manager.ServerChangeScene(MahjongSceneName);
         }
     }
 }
-

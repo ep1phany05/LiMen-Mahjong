@@ -1,18 +1,17 @@
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
+using GamePlay.Server.Controller;
 using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
 {
-    public class PlayerDiscardTileState : ServerState, IOnEventCallback
+    public class PlayerDiscardTileState : ServerState
     {
         public int CurrentPlayerIndex;
         public Tile DiscardTile;
@@ -28,7 +27,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateEnter()
         {
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnOutTurnOperationReceived += HandleOutTurnOperation;
             if (CurrentRoundStatus.CurrentPlayerIndex != CurrentPlayerIndex)
             {
                 Debug.LogError("[Server] currentPlayerIndex does not match, this should not happen");
@@ -55,8 +54,8 @@ namespace GamePlay.Server.Controller.GameState
                     HandTiles = CurrentRoundStatus.HandTiles(i),
                     Rivers = rivers
                 };
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcDiscardOperation", player, info);
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcDiscardOperation(conn, info);
             }
             firstSendTime = Time.time;
             serverTimeOut = gameSettings.BaseTurnTime + CurrentRoundStatus.MaxBonusTurnTime
@@ -265,7 +264,7 @@ namespace GamePlay.Server.Controller.GameState
                 false, TurnDoraAfterDiscard);
         }
 
-        private void OnOutTurnOperationEvent(EventMessages.OutTurnOperationInfo info)
+        private void HandleOutTurnOperation(EventMessages.OutTurnOperationInfo info)
         {
             var index = info.PlayerIndex;
             if (responds[index]) return;
@@ -276,20 +275,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.OutTurnOperationEvent:
-                    OnOutTurnOperationEvent((EventMessages.OutTurnOperationInfo)info);
-                    break;
-            }
+            ServerBehaviour.Instance.OnOutTurnOperationReceived -= HandleOutTurnOperation;
         }
     }
 }

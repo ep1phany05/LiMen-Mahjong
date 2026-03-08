@@ -10,7 +10,7 @@ using Utils;
 using Mahjong.Logic;
 using Mahjong.Model;
 using GamePlay.Server.Controller;
-using Photon.Pun;
+using Mirror;
 
 namespace Console
 {
@@ -179,10 +179,10 @@ namespace Console
             }
         }
 
-        [ConsoleMethod("ping", "Show ping to the photon server")]
+        [ConsoleMethod("ping", "Show ping to the server (RTT in ms)")]
         public static int Ping()
         {
-            return PhotonNetwork.GetPing();
+            return (int)(NetworkTime.rtt * 1000);
         }
     }
 }

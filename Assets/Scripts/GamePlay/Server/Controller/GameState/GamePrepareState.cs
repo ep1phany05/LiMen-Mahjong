@@ -1,9 +1,7 @@
 using System.Linq;
-using ExitGames.Client.Photon;
 using GamePlay.Client.Controller;
-using Photon.Pun;
-using Photon.Realtime;
 using GamePlay.Server.Model.Events;
+using Mirror;
 using UnityEngine;
 
 namespace GamePlay.Server.Controller.GameState
@@ -13,7 +11,7 @@ namespace GamePlay.Server.Controller.GameState
     /// The playerIndex is arranged in this state, so is the settings. Messages will be sent to clients to inform the information.
     /// Transfers to RoundStartState. The state transfer will be done regardless whether enough client responds received.
     /// </summary>
-    public class GamePrepareState : ServerState, IOnEventCallback
+    public class GamePrepareState : ServerState
     {
         private bool[] responds;
         private float firstTime;
@@ -21,7 +19,7 @@ namespace GamePlay.Server.Controller.GameState
         public override void OnServerStateEnter()
         {
             Debug.Log($"This game has total {players.Count} players");
-            PhotonNetwork.AddCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived += HandleClientReady;
             responds = new bool[players.Count];
             firstTime = Time.time;
             CurrentRoundStatus.ShufflePlayers();
@@ -39,11 +37,10 @@ namespace GamePlay.Server.Controller.GameState
 
         private void ClientRpcCalls()
         {
-            var room = PhotonNetwork.CurrentRoom;
             for (int i = 0; i < CurrentRoundStatus.TotalPlayers; i++)
             {
-                var player = CurrentRoundStatus.GetPlayer(i);
-                ClientBehaviour.Instance.photonView.RPC("RpcGamePrepare", player, new EventMessages.GamePrepareInfo
+                var conn = CurrentRoundStatus.GetConnection(i);
+                ClientBehaviour.Instance.TargetRpcGamePrepare(conn, new EventMessages.GamePrepareInfo
                 {
                     PlayerIndex = i,
                     Points = CurrentRoundStatus.Points,
@@ -55,7 +52,7 @@ namespace GamePlay.Server.Controller.GameState
 
         public override void OnServerStateExit()
         {
-            PhotonNetwork.RemoveCallbackTarget(this);
+            ServerBehaviour.Instance.OnClientReadyReceived -= HandleClientReady;
         }
 
         public override void OnStateUpdate()
@@ -73,22 +70,10 @@ namespace GamePlay.Server.Controller.GameState
             }
         }
 
-        private void OnClientReadyEvent(int index)
+        private void HandleClientReady(int index)
         {
+            Debug.Log($"{GetType().Name} receives ClientReadyEvent with content {index}");
             responds[index] = true;
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            var code = photonEvent.Code;
-            var info = photonEvent.CustomData;
-            Debug.Log($"{GetType().Name} receives event code: {code} with content {info}");
-            switch (code)
-            {
-                case EventMessages.ClientReadyEvent:
-                    OnClientReadyEvent((int)photonEvent.CustomData);
-                    break;
-            }
         }
     }
 }

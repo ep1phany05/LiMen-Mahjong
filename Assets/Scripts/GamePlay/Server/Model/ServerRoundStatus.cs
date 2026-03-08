@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
-using Photon.Realtime;
+using Mirror;
 using UnityEngine;
-using Utils;
 
 namespace GamePlay.Server.Model
 {
@@ -34,15 +32,15 @@ namespace GamePlay.Server.Model
         private bool[] discardZhenting;
         private bool[] richiZhenting;
         private int[] beiDoras;
-        private IList<int> playerActorNumbers;
-        private IDictionary<int, string> playerNames;
+        private IList<NetworkConnectionToClient> playerConnections;
+        private IList<string> playerNameList;
 
-        public ServerRoundStatus(GameSetting gameSettings, IList<Player> players)
+        public ServerRoundStatus(GameSetting gameSettings, IList<NetworkConnectionToClient> connections, IList<string> names)
         {
             GameSettings = gameSettings;
             points = new int[TotalPlayers];
-            playerActorNumbers = players.Select(p => p.ActorNumber).ToList();
-            playerNames = players.ToDictionary(p => p.ActorNumber, p => p.NickName);
+            playerConnections = connections.ToList();
+            playerNameList = names.ToList();
         }
 
         public GameSetting GameSettings { get; }
@@ -58,14 +56,13 @@ namespace GamePlay.Server.Model
                 currentPlayerIndex = value;
             }
         }
-        public Player GetPlayer(int playerIndex)
+        /// <summary>获取指定座位玩家的网络连接</summary>
+        public NetworkConnectionToClient GetConnection(int playerIndex)
         {
-            var room = PhotonNetwork.CurrentRoom;
-            if (room == null) throw new ArgumentException("This should not happen");
-            int actorNumber = playerActorNumbers[playerIndex];
-            return room.Players[actorNumber];
+            if (playerIndex < 0 || playerIndex >= playerConnections.Count)
+                throw new ArgumentException($"Player index {playerIndex} out of range");
+            return playerConnections[playerIndex];
         }
-        public IList<int> PlayerActorNumbers => playerActorNumbers;
         public int OyaPlayerIndex => oya;
         public int Field => field;
         public int Dice => dice;
@@ -108,13 +105,18 @@ namespace GamePlay.Server.Model
         }
         public bool FirstTurn => firstTurn;
         public int TotalPlayers => GameSettings.MaxPlayer;
-        public string[] PlayerNames => playerActorNumbers.Select(id => playerNames[id]).ToArray();
+        /// <summary>
+        /// 兼容旧状态机代码：返回按座位顺序的玩家索引列表。
+        /// </summary>
+        public IList<int> PlayerActorNumbers => Enumerable.Range(0, playerConnections.Count).ToList();
+        public string[] PlayerNames => playerNameList.ToArray();
         public int KongClaimed => kongClaimed;
         public int MaxBonusTurnTime => bonusTurnTime.Max();
 
         public string GetPlayerName(int index)
         {
-            return playerNames[playerActorNumbers[index]];
+            if (index < 0 || index >= playerNameList.Count) return $"Player{index}";
+            return playerNameList[index];
         }
 
         public void ClaimKong()
@@ -124,7 +126,16 @@ namespace GamePlay.Server.Model
 
         public void ShufflePlayers()
         {
-            playerActorNumbers.Shuffle();
+            // Shuffle connections and names together
+            var paired = playerConnections.Zip(playerNameList, (c, n) => (c, n)).ToList();
+            var rng = new System.Random();
+            for (int i = paired.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (paired[i], paired[j]) = (paired[j], paired[i]);
+            }
+            playerConnections = paired.Select(p => p.c).ToList();
+            playerNameList = paired.Select(p => p.n).ToList();
         }
 
         public int GetBonusTurnTime(int index)

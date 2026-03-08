@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 
 namespace PUNLobby.Room
@@ -11,9 +11,9 @@ namespace PUNLobby.Room
 
         public void Set(bool isMaster, string playerName, bool isReady)
         {
-            roomMaster.gameObject.SetActive(isMaster);
-            readySign.gameObject.SetActive(isMaster || isReady);
-            playerNameText.text = playerName;
+            if (roomMaster != null) roomMaster.gameObject.SetActive(isMaster);
+            if (readySign != null) readySign.gameObject.SetActive(isMaster || isReady);
+            if (playerNameText != null) playerNameText.text = playerName;
         }
     }
 }

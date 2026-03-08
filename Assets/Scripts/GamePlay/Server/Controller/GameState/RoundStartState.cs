@@ -4,7 +4,7 @@ using GamePlay.Server.Model;
 using GamePlay.Server.Model.Events;
 using Mahjong.Logic;
 using Mahjong.Model;
-using Photon.Pun;
+using Mirror;
 using UnityEngine;
 
 
@@ -36,7 +36,6 @@ namespace GamePlay.Server.Controller.GameState
             CurrentRoundStatus.SortHandTiles();
             CurrentRoundStatus.SetBonusTurnTime(gameSettings.BonusTurnTime);
             responds = new bool[players.Count];
-            var room = PhotonNetwork.CurrentRoom;
             for (int index = 0; index < players.Count; index++)
             {
                 var tiles = CurrentRoundStatus.HandTiles(index);
@@ -53,8 +52,8 @@ namespace GamePlay.Server.Controller.GameState
                     InitialHandTiles = tiles,
                     MahjongSetData = MahjongSet.Data
                 };
-                var player = CurrentRoundStatus.GetPlayer(index);
-                ClientBehaviour.Instance.photonView.RPC("RpcRoundStart", player, info);
+                var conn = CurrentRoundStatus.GetConnection(index);
+                ClientBehaviour.Instance.TargetRpcRoundStart(conn, info);
             }
             firstTime = Time.time;
         }
